@@ -1,0 +1,51 @@
+# Исключаем git-метаданные
+.git
+.gitignore
+
+# Node / TypeScript
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Сборки и кэш
+dist
+build
+coverage
+.turbo
+.next
+out
+
+apps/**/dist
+apps/**/build
+
+# Окружения
+.env
+.env.*
+apps/**/.env
+
+# Логи
+logs
+*.log
+*.log.*
+
+# IDE / редакторы
+.vscode
+.idea
+*.iml
+
+# Файлы ОС
+.DS_Store
+Thumbs.db
+
+# Docker / runtime
+docker-data
+*.pid
+
+# Временные файлы
+*.swp
+*.swo
+*.tmp
+*.temp
+

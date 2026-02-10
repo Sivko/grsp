@@ -1,0 +1,45 @@
+services:
+  meet-frontend:
+    image: meet-frontend:latest
+    container_name: meet-frontend
+    networks:
+      - app_network
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # Маршрут для статики (низкий приоритет — только если не совпал /ws или /healthz)
+      - "traefik.http.routers.meet-frontend.rule=Host(`meet.limpopo113.ru`)"
+      - "traefik.http.routers.meet-frontend.priority=1"
+      - "traefik.http.routers.meet-frontend.entrypoints=websecure"
+      - "traefik.http.routers.meet-frontend.tls=true"
+      - "traefik.http.routers.meet-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.meet-frontend.loadbalancer.server.port=80"
+
+  meet-backend:
+    image: meet-backend:latest
+    container_name: meet-backend
+    environment:
+      PORT: 3000
+      WS_PATH: /ws
+      MAX_PEERS_PER_CHANNEL: 6
+      ENABLE_STUN: "false"
+    networks:
+      - app_network
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # WebSocket и health — высокий приоритет
+      - "traefik.http.routers.meet-backend.rule=Host(`meet.limpopo113.ru`) && (PathPrefix(`/ws`) || PathPrefix(`/healthz`))"
+      - "traefik.http.routers.meet-backend.priority=10"
+      - "traefik.http.routers.meet-backend.entrypoints=websecure"
+      - "traefik.http.routers.meet-backend.tls=true"
+      - "traefik.http.routers.meet-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.meet-backend.loadbalancer.server.port=3000"
+
+networks:
+  app_network:
+    name: app_network
+    external: true
+  proxy:
+    name: proxy
+    external: true
