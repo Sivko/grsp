@@ -15,6 +15,15 @@ export interface PeerState {
   speaking: boolean;
 }
 
+/** RTCPeerConnection.getStats() — данные для отображения в UI */
+export interface PeerRtcStats {
+  peerId: string;
+  outbound?: { bytes: number; packets: number; packetsLost?: number };
+  inbound?: { bytes: number; packets: number; packetsLost?: number };
+  roundTripTimeMs?: number;
+  connectionState?: string;
+}
+
 export interface ChatMessage {
   id: string;
   peerId: string;

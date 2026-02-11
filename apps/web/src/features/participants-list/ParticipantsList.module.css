@@ -9,8 +9,30 @@
   border-radius: 6px;
   margin-bottom: 4px;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.peerMain {
+  display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.stats {
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats span {
+  white-space: nowrap;
+}
+
+.connectionState {
+  text-transform: lowercase;
 }
 
 .name {

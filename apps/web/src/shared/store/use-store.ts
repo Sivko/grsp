@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { idbStorage } from "./idb-storage";
-import type { KeyPairBase64, PeerState, ChatMessage, MicSettings } from "./types";
+import type { KeyPairBase64, PeerState, PeerRtcStats, ChatMessage, MicSettings } from "./types";
 
 const PERSIST_NAME = "meet-p2p-persist";
 
@@ -36,10 +36,12 @@ interface PersistedSlice {
 interface SessionSlice {
   myPeerId: string;
   peers: PeerState[];
+  peerStats: Record<string, PeerRtcStats>;
   messages: ChatMessage[];
   connectionStatus: "disconnected" | "connecting" | "connected";
   setMyPeerId: (id: string) => void;
   setPeers: (peers: PeerState[]) => void;
+  setPeerStats: (stats: Record<string, PeerRtcStats>) => void;
   setPeerSpeaking: (peerId: string, speaking: boolean) => void;
   setPeerMicMuted: (peerId: string, muted: boolean) => void;
   addMessage: (msg: ChatMessage) => void;
@@ -85,10 +87,12 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
 
       myPeerId: "",
       peers: [],
+      peerStats: {},
       messages: [],
       connectionStatus: "disconnected",
       setMyPeerId: (id) => set({ myPeerId: id }),
       setPeers: (peers) => set({ peers }),
+      setPeerStats: (stats) => set({ peerStats: stats }),
       setPeerSpeaking: (peerId, speaking) =>
         set((s) => ({
           peers: s.peers.map((p) => (p.peerId === peerId ? { ...p, speaking } : p)),
@@ -104,6 +108,7 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
         set({
           myPeerId: "",
           peers: [],
+          peerStats: {},
           messages: [],
           connectionStatus: "disconnected",
         }),

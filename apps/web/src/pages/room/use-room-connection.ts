@@ -4,6 +4,7 @@ import { Discovery } from "@/shared/lib/discovery";
 import { Mesh } from "@/shared/lib/mesh";
 import { packMessage, unpackMessage } from "@/shared/lib/crypto";
 import { useStore, getGroupKeyBytes, getMyKeyPairBytes } from "@/shared/store";
+import type { PeerRtcStats } from "@/shared/store/types";
 import { MAX_PEERS } from "@/shared/lib/discovery";
 
 const STUN_PORT = 3478;
@@ -27,23 +28,13 @@ function iceServersFromBootstrapUrl(bootstrapUrl: string): RTCIceServer[] {
   }
 }
 
-const MIC_STATS_LOG_INTERVAL_MS = 3000;
+const RTC_STATS_INTERVAL_MS = 2000;
 
-async function logMicTransportStats(mesh: Mesh | null): Promise<void> {
-  if (!mesh) return;
-  const peerIds = mesh.getPeerIds();
-  if (peerIds.length === 0) {
-    console.log("[Mic/Stream] Передача по микрофону", { пиров: 0, исходящий: { bytes: 0, packets: 0 }, входящий: { bytes: 0, packets: 0 } });
-    return;
-  }
+async function collectPeerStats(mesh: Mesh | null): Promise<Record<string, PeerRtcStats>> {
+  const stats: Record<string, PeerRtcStats> = {};
+  if (!mesh) return stats;
 
-  let totalOutBytes = 0;
-  let totalOutPackets = 0;
-  let totalInBytes = 0;
-  let totalInPackets = 0;
-  const perPeer: Array<{ peerId: string; out: { bytes: number; packets: number }; in: { bytes: number; packets: number } }> = [];
-
-  for (const peerId of peerIds) {
+  for (const peerId of mesh.getPeerIds()) {
     const pc = mesh.getConnection(peerId);
     if (!pc) continue;
     try {
@@ -52,36 +43,39 @@ async function logMicTransportStats(mesh: Mesh | null): Promise<void> {
       let outPackets = 0;
       let inBytes = 0;
       let inPackets = 0;
+      let inPacketsLost = 0;
+      let roundTripTimeMs: number | undefined;
+
       report.forEach((s) => {
         if (s.type === "outbound-rtp" && (s as RTCOutboundRtpStreamStats).kind === "audio") {
-          outBytes += (s as RTCOutboundRtpStreamStats).bytesSent ?? 0;
-          outPackets += (s as RTCOutboundRtpStreamStats).packetsSent ?? 0;
+          const o = s as RTCOutboundRtpStreamStats;
+          outBytes += o.bytesSent ?? 0;
+          outPackets += o.packetsSent ?? 0;
         }
         if (s.type === "inbound-rtp" && (s as RTCInboundRtpStreamStats).kind === "audio") {
-          inBytes += (s as RTCInboundRtpStreamStats).bytesReceived ?? 0;
-          inPackets += (s as RTCInboundRtpStreamStats).packetsReceived ?? 0;
+          const i = s as RTCInboundRtpStreamStats;
+          inBytes += i.bytesReceived ?? 0;
+          inPackets += i.packetsReceived ?? 0;
+          inPacketsLost += i.packetsLost ?? 0;
+        }
+        if (s.type === "candidate-pair" && (s as RTCIceCandidatePairStats).state === "succeeded") {
+          const rtt = (s as RTCIceCandidatePairStats).currentRoundTripTime;
+          if (rtt != null && rtt > 0) roundTripTimeMs = rtt * 1000;
         }
       });
-      totalOutBytes += outBytes;
-      totalOutPackets += outPackets;
-      totalInBytes += inBytes;
-      totalInPackets += inPackets;
-      perPeer.push({
-        peerId: peerId.slice(0, 8),
-        out: { bytes: outBytes, packets: outPackets },
-        in: { bytes: inBytes, packets: inPackets },
-      });
+
+      stats[peerId] = {
+        peerId,
+        outbound: { bytes: outBytes, packets: outPackets },
+        inbound: { bytes: inBytes, packets: inPackets, packetsLost: inPacketsLost },
+        roundTripTimeMs,
+        connectionState: pc.connectionState,
+      };
     } catch (_) {
       // ignore single peer failure
     }
   }
-
-  console.log("[Mic/Stream] Передача по микрофону", {
-    исходящий: { bytes: totalOutBytes, packets: totalOutPackets },
-    входящий: { bytes: totalInBytes, packets: totalInPackets },
-    пиров: peerIds.length,
-    по_пирам: perPeer,
-  });
+  return stats;
 }
 
 function applyMicGain(
@@ -110,6 +104,7 @@ export function useRoomConnection() {
   const setPeerMicMuted = useStore((s) => s.setPeerMicMuted);
   const addMessage = useStore((s) => s.addMessage);
   const setConnectionStatus = useStore((s) => s.setConnectionStatus);
+  const setPeerStats = useStore((s) => s.setPeerStats);
 
   const discoveryRef = useRef<Discovery | null>(null);
   const meshRef = useRef<Mesh | null>(null);
@@ -117,7 +112,7 @@ export function useRoomConnection() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const gainContextRef = useRef<AudioContext | null>(null);
   const analysersRef = useRef<Map<string, { analyser: AnalyserNode; rafId: number; audioContext: AudioContext; audioEl?: HTMLAudioElement }>>(new Map());
-  const micStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rtcStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const micGain = useStore((s) => s.micSettings.micGain ?? 1);
 
@@ -251,9 +246,10 @@ export function useRoomConnection() {
       discoveryRef.current = discovery;
       meshRef.current = mesh;
 
-      micStatsIntervalRef.current = setInterval(() => {
-        logMicTransportStats(meshRef.current);
-      }, MIC_STATS_LOG_INTERVAL_MS);
+      rtcStatsIntervalRef.current = setInterval(async () => {
+        const stats = await collectPeerStats(meshRef.current);
+        setPeerStats(stats);
+      }, RTC_STATS_INTERVAL_MS);
 
       discovery.connect(bootstrapUrl.trim(), dkey, {
         peerId: myPeerId,
@@ -262,9 +258,9 @@ export function useRoomConnection() {
     })();
 
     return () => {
-      if (micStatsIntervalRef.current) {
-        clearInterval(micStatsIntervalRef.current);
-        micStatsIntervalRef.current = null;
+      if (rtcStatsIntervalRef.current) {
+        clearInterval(rtcStatsIntervalRef.current);
+        rtcStatsIntervalRef.current = null;
       }
       discoveryRef.current?.disconnect();
       meshRef.current?.disconnect();
@@ -279,8 +275,9 @@ export function useRoomConnection() {
       analysersRef.current.clear();
       setConnectionStatus("disconnected");
       setPeers([]);
+      setPeerStats({});
     };
-  }, [groupId, bootstrapUrl, myDisplayName, setMyPeerId, setPeers, setPeerSpeaking, addMessage, setConnectionStatus, setPeerMicMuted, getKeyPair, getGroupKey]);
+  }, [groupId, bootstrapUrl, myDisplayName, setMyPeerId, setPeers, setPeerSpeaking, setPeerStats, addMessage, setConnectionStatus, setPeerMicMuted, getKeyPair, getGroupKey]);
 
   const sendMessage = useCallback(
     async (text: string) => {
