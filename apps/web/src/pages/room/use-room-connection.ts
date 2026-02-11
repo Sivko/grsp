@@ -6,6 +6,7 @@ import { packMessage, unpackMessage } from "@/shared/lib/crypto";
 import { useStore, getGroupKeyBytes, getMyKeyPairBytes } from "@/shared/store";
 import type { PeerRtcStats } from "@/shared/store/types";
 import { MAX_PEERS } from "@/shared/lib/discovery";
+import { applyNoiseGate } from "@/features/mic-toggle/apply-noise-gate";
 
 const STUN_PORT = 3478;
 
@@ -111,10 +112,13 @@ export function useRoomConnection() {
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const gainContextRef = useRef<AudioContext | null>(null);
+  const noiseGateStopRef = useRef<(() => void) | null>(null);
   const analysersRef = useRef<Map<string, { analyser: AnalyserNode; rafId: number; audioContext: AudioContext; audioEl?: HTMLAudioElement }>>(new Map());
   const rtcStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const micGain = useStore((s) => s.micSettings.micGain ?? 1);
+  const noiseGateEnabled = useStore((s) => s.micSettings.noiseGateEnabled ?? true);
+  const noiseGateThreshold = useStore((s) => s.micSettings.noiseGateThreshold ?? 25);
 
   const getKeyPair = useCallback(() => getMyKeyPairBytes(), []);
   const getGroupKey = useCallback(() => getGroupKeyBytes(), []);
@@ -267,6 +271,8 @@ export function useRoomConnection() {
       discoveryRef.current = null;
       meshRef.current = null;
       dataChannelsRef.current.clear();
+      noiseGateStopRef.current?.();
+      noiseGateStopRef.current = null;
       gainContextRef.current?.close();
       gainContextRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -305,6 +311,8 @@ export function useRoomConnection() {
   );
 
   const setLocalStream = useCallback((stream: MediaStream | null) => {
+    noiseGateStopRef.current?.();
+    noiseGateStopRef.current = null;
     gainContextRef.current?.close();
     gainContextRef.current = null;
     if (localStreamRef.current) {
@@ -313,7 +321,17 @@ export function useRoomConnection() {
     localStreamRef.current = stream;
     if (stream) {
       const gain = useStore.getState().micSettings.micGain ?? 1;
-      const result = applyMicGain(stream, gain);
+      const ngEnabled = useStore.getState().micSettings.noiseGateEnabled ?? true;
+      const ngThreshold = useStore.getState().micSettings.noiseGateThreshold ?? 25;
+
+      let inputStream: MediaStream = stream;
+      if (ngEnabled) {
+        const ng = applyNoiseGate(stream, { threshold: ngThreshold });
+        noiseGateStopRef.current = ng.stop;
+        inputStream = ng.stream;
+      }
+
+      const result = applyMicGain(inputStream, gain);
       gainContextRef.current = result.context;
       const track = result.stream.getAudioTracks()[0];
       console.log("[Mic/Stream] Исходящий аудиопоток установлен", {
@@ -321,6 +339,7 @@ export function useRoomConnection() {
         trackId: track?.id,
         trackLabel: track?.label,
         micGain: gain,
+        noiseGate: ngEnabled,
       });
       meshRef.current?.setLocalStream(result.stream);
     } else {
@@ -334,12 +353,25 @@ export function useRoomConnection() {
     const mesh = meshRef.current;
     if (!raw || !mesh) return;
     const gain = useStore.getState().micSettings.micGain ?? 1;
+    const ngEnabled = useStore.getState().micSettings.noiseGateEnabled ?? true;
+    const ngThreshold = useStore.getState().micSettings.noiseGateThreshold ?? 25;
+
+    noiseGateStopRef.current?.();
+    noiseGateStopRef.current = null;
     gainContextRef.current?.close();
     gainContextRef.current = null;
-    const result = applyMicGain(raw, gain);
+
+    let inputStream: MediaStream = raw;
+    if (ngEnabled) {
+      const ng = applyNoiseGate(raw, { threshold: ngThreshold });
+      noiseGateStopRef.current = ng.stop;
+      inputStream = ng.stream;
+    }
+
+    const result = applyMicGain(inputStream, gain);
     gainContextRef.current = result.context;
     mesh.setLocalStream(result.stream);
-  }, [micGain]);
+  }, [micGain, noiseGateEnabled, noiseGateThreshold]);
 
   return { sendMessage, setLocalStream };
 }

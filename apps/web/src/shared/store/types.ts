@@ -47,4 +47,8 @@ export interface MicSettings {
   testGain: number;
   /** Громкость микрофона при передаче (0.1–3, 1 = без изменений) */
   micGain: number;
+  /** Шлюз тишины: передавать звук только выше порога (обрезка клавиатуры и т.п.) */
+  noiseGateEnabled: boolean;
+  /** Порог шлюза тишины (0–255). Ниже — тишина. */
+  noiseGateThreshold: number;
 }

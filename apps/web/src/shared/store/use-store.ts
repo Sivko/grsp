@@ -9,13 +9,15 @@ const DEFAULT_MIC_SETTINGS: MicSettings = {
   deviceId: null,
   echoCancellation: null,
   autoGainControl: null,
-  noiseSuppression: null,
+  noiseSuppression: true,
   sampleRate: null,
   sampleSize: null,
   channelCount: null,
   latency: null,
   testGain: 0.5,
   micGain: 1,
+  noiseGateEnabled: true,
+  noiseGateThreshold: 25,
 };
 
 interface PersistedSlice {

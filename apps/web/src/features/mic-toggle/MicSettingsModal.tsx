@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Modal, Select, InputNumber, Space, Typography, Divider, Button, Progress, Segmented, Slider } from "antd";
+import { Modal, Select, InputNumber, Space, Typography, Divider, Button, Progress, Segmented, Slider, Switch } from "antd";
 import { SettingOutlined, SoundOutlined, StopOutlined } from "@ant-design/icons";
 import { useStore } from "@/shared/store";
 import type { MicSettings } from "@/shared/store/types";
@@ -290,6 +290,37 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {Math.round((micSettings.micGain ?? 1) * 100)}%
           </Typography.Text>
+        </div>
+
+        <Divider style={{ margin: "8px 0" }} />
+
+        {/* Шлюз тишины (noise gate) */}
+        <div>
+          <Typography.Text strong>Шлюз тишины</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
+            Передавать звук только выше порога. Обрезает тихие звуки (клавиатура, фоновый шум).
+          </Typography.Text>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
+            <Switch
+              checked={micSettings.noiseGateEnabled ?? true}
+              onChange={(v) => updateSetting("noiseGateEnabled", v)}
+            />
+            <Typography.Text>Включить</Typography.Text>
+          </div>
+          {micSettings.noiseGateEnabled && (
+            <div>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Порог: {micSettings.noiseGateThreshold ?? 25} (чем выше — тем тише обрезается)
+              </Typography.Text>
+              <Slider
+                min={5}
+                max={80}
+                value={micSettings.noiseGateThreshold ?? 25}
+                onChange={(v) => updateSetting("noiseGateThreshold", v ?? 25)}
+                style={{ marginTop: 4, maxWidth: 280 }}
+              />
+            </div>
+          )}
         </div>
 
         <Divider style={{ margin: "8px 0" }} />
