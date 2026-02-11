@@ -34,4 +34,6 @@ export interface MicSettings {
   sampleSize: number | null;
   channelCount: number | null;
   latency: number | null;
+  /** Громкость локального воспроизведения при тесте (0–1) */
+  testGain: number;
 }

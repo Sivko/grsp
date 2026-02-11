@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Modal, Select, InputNumber, Space, Typography, Divider, Button, Progress, Segmented } from "antd";
+import { Modal, Select, InputNumber, Space, Typography, Divider, Button, Progress, Segmented, Slider } from "antd";
 import { SettingOutlined, SoundOutlined, StopOutlined } from "@ant-design/icons";
 import { useStore } from "@/shared/store";
 import type { MicSettings } from "@/shared/store/types";
@@ -32,6 +32,7 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
 
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
   const rafRef = useRef<number>(0);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const testStreamRef = useRef<MediaStream | null>(null);
@@ -77,10 +78,12 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
 
       // Локальное воспроизведение для теста голоса
       const gainNode = audioContext.createGain();
-      gainNode.gain.value = 0.5;
+      const gain = micSettings.testGain ?? 0.5;
+      gainNode.gain.value = gain;
       source.connect(gainNode);
       gainNode.connect(audioContext.destination);
 
+      gainNodeRef.current = gainNode;
       audioContextRef.current = audioContext;
       analyserRef.current = analyser;
       dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
@@ -105,6 +108,7 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     audioContextRef.current?.close();
     audioContextRef.current = null;
+    gainNodeRef.current = null;
     analyserRef.current = null;
     dataArrayRef.current = null;
     testStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -287,6 +291,22 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
                 </Button>
                 <Typography.Text type="success">Говорите в микрофон</Typography.Text>
               </Space>
+              <div>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  Громкость воспроизведения: {Math.round((micSettings.testGain ?? 0.5) * 100)}%
+                </Typography.Text>
+                <Slider
+                  min={0}
+                  max={3}
+                  step={0.01}
+                  value={micSettings.testGain ?? 0.5}
+                  onChange={(v) => {
+                    updateSetting("testGain", v);
+                    gainNodeRef.current && (gainNodeRef.current.gain.value = v);
+                  }}
+                  style={{ marginTop: 4 }}
+                />
+              </div>
               <Progress
                 percent={testLevel}
                 size="small"

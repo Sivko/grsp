@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { Button, Space } from "antd";
 import { AudioMutedOutlined, AudioOutlined, SettingOutlined } from "@ant-design/icons";
 import { MicDebug } from "./MicDebug";
@@ -21,7 +21,19 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
 
   const micSettings = useStore((s) => s.micSettings);
 
+  /** Настройки, влияющие на getUserMedia (без testGain — он только для локального теста) */
+  const constraintSettingsKey = useMemo(() => {
+    const { testGain, ...rest } = micSettings;
+    return JSON.stringify(rest);
+  }, [micSettings]);
+
   const enableMic = useCallback(async () => {
+    // Остановить предыдущий stream при перезапуске (напр. при смене настроек)
+    streamForDebugRef.current?.getTracks().forEach((t) => t.stop());
+    streamForDebugRef.current = null;
+    setStreamForDebug(null);
+    onStreamChange(null);
+
     setLoading(true);
     const audioConstraints = buildAudioConstraints(micSettings);
     const constraints = { audio: audioConstraints };
@@ -77,6 +89,18 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
       onStreamChange(null);
     };
   }, [onStreamChange]);
+
+  /** Перезапуск микрофона при изменении настроек, чтобы применить их сразу */
+  const isFirstSettingsCheck = useRef(true);
+  useEffect(() => {
+    if (isFirstSettingsCheck.current) {
+      isFirstSettingsCheck.current = false;
+      return;
+    }
+    if (!muted) {
+      enableMic();
+    }
+  }, [constraintSettingsKey]); // mute и enableMic не в deps — намеренно
 
   const toggle = () => {
     if (muted) enableMic();
