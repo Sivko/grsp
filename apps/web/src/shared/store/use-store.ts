@@ -1,9 +1,20 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { idbStorage } from "./idb-storage";
-import type { KeyPairBase64, PeerState, ChatMessage } from "./types";
+import type { KeyPairBase64, PeerState, ChatMessage, MicSettings } from "./types";
 
 const PERSIST_NAME = "meet-p2p-persist";
+
+const DEFAULT_MIC_SETTINGS: MicSettings = {
+  deviceId: null,
+  echoCancellation: null,
+  autoGainControl: null,
+  noiseSuppression: null,
+  sampleRate: null,
+  sampleSize: null,
+  channelCount: null,
+  latency: null,
+};
 
 interface PersistedSlice {
   bootstrapUrl: string;
@@ -11,10 +22,12 @@ interface PersistedSlice {
   groupKeyBase64: string | null;
   myKeyPairBase64: KeyPairBase64 | null;
   myDisplayName: string;
+  micSettings: MicSettings;
   setBootstrapUrl: (url: string) => void;
   setGroup: (groupId: string | null, groupKeyBase64: string | null) => void;
   setMyKeyPair: (pair: KeyPairBase64 | null) => void;
   setMyDisplayName: (name: string) => void;
+  setMicSettings: (settings: Partial<MicSettings>) => void;
   leaveGroup: () => void;
 }
 
@@ -56,10 +69,15 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
       groupKeyBase64: null,
       myKeyPairBase64: null,
       myDisplayName: "",
+      micSettings: DEFAULT_MIC_SETTINGS,
       setBootstrapUrl: (url) => set({ bootstrapUrl: url }),
       setGroup: (groupId, groupKeyBase64) => set({ groupId, groupKeyBase64 }),
       setMyKeyPair: (pair) => set({ myKeyPairBase64: pair }),
       setMyDisplayName: (name) => set({ myDisplayName: name }),
+      setMicSettings: (settings) =>
+        set((s) => ({
+          micSettings: { ...s.micSettings, ...settings },
+        })),
       leaveGroup: () =>
         set({ groupId: null, groupKeyBase64: null, myKeyPairBase64: null }),
 
@@ -101,6 +119,7 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
         groupKeyBase64: s.groupKeyBase64,
         myKeyPairBase64: s.myKeyPairBase64,
         myDisplayName: s.myDisplayName,
+        micSettings: s.micSettings,
       }),
     }
   )

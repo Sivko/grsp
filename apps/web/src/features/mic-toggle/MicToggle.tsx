@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Button } from "antd";
-import { AudioMutedOutlined, AudioOutlined } from "@ant-design/icons";
+import { Button, Space } from "antd";
+import { AudioMutedOutlined, AudioOutlined, SettingOutlined } from "@ant-design/icons";
 import { MicDebug } from "./MicDebug";
+import { MicSettingsModal } from "./MicSettingsModal";
+import { useStore } from "@/shared/store";
+import { buildAudioConstraints } from "./build-constraints";
 
 interface MicToggleProps {
   onStreamChange: (stream: MediaStream | null) => void;
@@ -12,12 +15,16 @@ interface MicToggleProps {
 export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
   const [muted, setMuted] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const streamForDebugRef = useRef<MediaStream | null>(null);
   const [streamForDebug, setStreamForDebug] = useState<MediaStream | null>(null);
 
+  const micSettings = useStore((s) => s.micSettings);
+
   const enableMic = useCallback(async () => {
     setLoading(true);
-    const constraints = { audio: true };
+    const audioConstraints = buildAudioConstraints(micSettings);
+    const constraints = { audio: audioConstraints };
     if (debug) {
       console.log("[Mic] Запрос доступа к микрофону", { constraints });
     }
@@ -55,7 +62,7 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
     } finally {
       setLoading(false);
     }
-  }, [onStreamChange, debug]);
+  }, [onStreamChange, debug, micSettings]);
 
   const disableMic = useCallback(() => {
     if (debug) console.log("[Mic] Микрофон выключен");
@@ -78,16 +85,25 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
 
   return (
     <>
-      <Button
-        type={muted ? "default" : "primary"}
-        danger={!muted}
-        icon={muted ? <AudioMutedOutlined /> : <AudioOutlined />}
-        onClick={toggle}
-        loading={loading}
-      >
-        {muted ? "Turn on microphone" : "Turn off microphone"}
-      </Button>
+      <Space>
+        <Button
+          type={muted ? "default" : "primary"}
+          danger={!muted}
+          icon={muted ? <AudioMutedOutlined /> : <AudioOutlined />}
+          onClick={toggle}
+          loading={loading}
+        >
+          {muted ? "Turn on microphone" : "Turn off microphone"}
+        </Button>
+        <Button
+          type="text"
+          icon={<SettingOutlined />}
+          onClick={() => setSettingsOpen(true)}
+          title="Настройки микрофона"
+        />
+      </Space>
       {debug && <MicDebug stream={streamForDebug} showOnlyWhenActive />}
+      <MicSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   );
 }

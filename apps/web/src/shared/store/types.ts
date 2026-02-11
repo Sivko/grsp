@@ -23,3 +23,15 @@ export interface ChatMessage {
   timestamp: number;
   signatureValid: boolean;
 }
+
+/** Настройки микрофона для getUserMedia audio constraints */
+export interface MicSettings {
+  deviceId: string | null;
+  echoCancellation: boolean | null;
+  autoGainControl: boolean | null;
+  noiseSuppression: boolean | null;
+  sampleRate: number | null;
+  sampleSize: number | null;
+  channelCount: number | null;
+  latency: number | null;
+}
