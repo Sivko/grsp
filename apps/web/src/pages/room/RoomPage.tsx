@@ -1,14 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout, Card, Tag, Button } from "antd";
 import { useRoomConnection } from "./use-room-connection";
 import { MicToggle } from "@/features/mic-toggle";
 import { ParticipantsList } from "@/features/participants-list";
 import { ChatPanel } from "@/features/chat";
+import { AudioConstraintsPanel, DEFAULT_CONSTRAINTS, getSupportedConstraints } from "@/features/audio-constraints";
 import { useStore } from "@/shared/store";
 import { MAX_PEERS } from "@/shared/lib/discovery";
+import type { AudioConstraintsState } from "@/features/audio-constraints";
 
-const { Content, Header } = Layout;
+const { Content, Header, Footer } = Layout;
 
 export function RoomPage() {
   const navigate = useNavigate();
@@ -20,6 +22,19 @@ export function RoomPage() {
   const resetSession = useStore((s) => s.resetSession);
 
   const { sendMessage, setLocalStream, setPeerVolume } = useRoomConnection();
+
+  const [localStream, setLocalStreamState] = useState<MediaStream | null>(null);
+  const [audioConstraints, setAudioConstraints] = useState<AudioConstraintsState>(DEFAULT_CONSTRAINTS);
+
+  const handleStreamChange = (stream: MediaStream | null) => {
+    setLocalStreamState(stream);
+    setLocalStream(stream);
+  };
+
+  const hasAudioConstraintsSupport = useMemo(() => {
+    const s = getSupportedConstraints();
+    return !!(s.echoCancellation || s.noiseSuppression || s.autoGainControl);
+  }, []);
 
   useEffect(() => {
     if (!groupId) navigate("/", { replace: true });
@@ -72,7 +87,7 @@ export function RoomPage() {
         >
           <ParticipantsList setPeerVolume={setPeerVolume} />
           <div style={{ marginTop: 16 }}>
-            <MicToggle onStreamChange={setLocalStream} />
+            <MicToggle onStreamChange={handleStreamChange} audioConstraints={audioConstraints} />
           </div>
           <Button type="link" danger onClick={handleLeave} style={{ marginTop: 12 }}>
             Leave group
@@ -84,6 +99,15 @@ export function RoomPage() {
           </div>
         </Card>
       </Content>
+      {hasAudioConstraintsSupport && (
+        <Footer style={{ padding: "12px 24px", textAlign: "left" }}>
+          <AudioConstraintsPanel
+            constraints={audioConstraints}
+            onConstraintsChange={setAudioConstraints}
+            stream={localStream}
+          />
+        </Footer>
+      )}
     </Layout>
   );
 }

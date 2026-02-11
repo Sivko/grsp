@@ -2,14 +2,17 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "antd";
 import { AudioMutedOutlined, AudioOutlined } from "@ant-design/icons";
 import { MicDebug } from "./MicDebug";
+import type { AudioConstraintsState } from "@/features/audio-constraints";
 
 interface MicToggleProps {
   onStreamChange: (stream: MediaStream | null) => void;
   /** Показывать отладочную панель микрофона (уровень, трек) */
   debug?: boolean;
+  /** Ограничения аудио для getUserMedia (echoCancellation, noiseSuppression, autoGainControl) */
+  audioConstraints?: AudioConstraintsState;
 }
 
-export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
+export function MicToggle({ onStreamChange, debug = true, audioConstraints }: MicToggleProps) {
   const [muted, setMuted] = useState(true);
   const [loading, setLoading] = useState(false);
   const streamForDebugRef = useRef<MediaStream | null>(null);
@@ -17,7 +20,15 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
 
   const enableMic = useCallback(async () => {
     setLoading(true);
-    const constraints = { audio: true };
+    const constraints = {
+      audio: audioConstraints
+        ? {
+            echoCancellation: audioConstraints.echoCancellation,
+            noiseSuppression: audioConstraints.noiseSuppression,
+            autoGainControl: audioConstraints.autoGainControl,
+          }
+        : true,
+    };
     if (debug) {
       console.log("[Mic] Запрос доступа к микрофону", { constraints });
     }
@@ -55,7 +66,7 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
     } finally {
       setLoading(false);
     }
-  }, [onStreamChange, debug]);
+  }, [onStreamChange, debug, audioConstraints]);
 
   const disableMic = useCallback(() => {
     if (debug) console.log("[Mic] Микрофон выключен");
