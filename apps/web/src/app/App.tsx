@@ -5,6 +5,9 @@ import { JoinGroupPage } from "@/pages/join-group";
 import { RoomPage } from "@/pages/room";
 
 export function App() {
+
+  console.log("App!!!");
+
   return (
     <ThemeProvider>
       <BrowserRouter>
