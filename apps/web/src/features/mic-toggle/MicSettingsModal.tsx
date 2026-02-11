@@ -304,6 +304,23 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
 
         <Divider style={{ margin: "8px 0" }} />
 
+        {/* RNNnoise */}
+        <div>
+          <Typography.Text strong>RNNnoise</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
+            Подавление шума через нейросеть (как в Яндекс Телемост). Рекомендуется включить.
+          </Typography.Text>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <Switch
+              checked={micSettings.rnnoiseEnabled ?? true}
+              onChange={(v) => updateSetting("rnnoiseEnabled", v)}
+            />
+            <Typography.Text>Включить</Typography.Text>
+          </div>
+        </div>
+
+        <Divider style={{ margin: "8px 0" }} />
+
         {/* Шлюз тишины (noise gate) */}
         <div>
           <Typography.Text strong>Шлюз тишины</Typography.Text>
@@ -349,6 +366,7 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
               { value: "none", label: "Без эквалайзера" },
               { value: "keyboard", label: "Подавление клавиатуры" },
               { value: "voice", label: "Чёткость голоса" },
+              { value: "voice-keyboard", label: "Голос + клавиатура (рекомендуется)" },
               { value: "reduce-hiss", label: "Подавление шипения и фона" },
             ]}
           />

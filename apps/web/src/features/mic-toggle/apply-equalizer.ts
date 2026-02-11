@@ -50,6 +50,23 @@ export function applyEqualizer(
       filters.push(shelf);
       break;
     }
+    case "voice-keyboard": {
+      // Голос + клавиатура: presence (2–3 кГц) + ослабление щелчков (выше 4 кГц)
+      // Комбинирует чёткость голоса и подавление клавиатуры
+      const presence = ctx.createBiquadFilter();
+      presence.type = "peaking";
+      presence.frequency.value = 2500;
+      presence.Q.value = 0.7;
+      presence.gain.value = 2;
+      filters.push(presence);
+
+      const keyboardCut = ctx.createBiquadFilter();
+      keyboardCut.type = "highshelf";
+      keyboardCut.frequency.value = 4000;
+      keyboardCut.gain.value = -10;
+      filters.push(keyboardCut);
+      break;
+    }
     case "reduce-hiss": {
       // Подавление шипения и фона: срез lowshelf + легкий high cut
       const lowCut = ctx.createBiquadFilter();

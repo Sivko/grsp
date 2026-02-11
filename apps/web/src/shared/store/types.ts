@@ -47,6 +47,8 @@ export interface MicSettings {
   testGain: number;
   /** Громкость микрофона при передаче (0.1–3, 1 = без изменений) */
   micGain: number;
+  /** RNNnoise — подавление шума через нейросеть (как в Телемост) */
+  rnnoiseEnabled: boolean;
   /** Шлюз тишины: передавать звук только выше порога (обрезка клавиатуры и т.п.) */
   noiseGateEnabled: boolean;
   /** Порог шлюза тишины (0–255). Ниже — тишина. */
@@ -55,4 +57,4 @@ export interface MicSettings {
   equalizerPreset: EqualizerPreset;
 }
 
-export type EqualizerPreset = "none" | "keyboard" | "voice" | "reduce-hiss";
+export type EqualizerPreset = "none" | "keyboard" | "voice" | "voice-keyboard" | "reduce-hiss";

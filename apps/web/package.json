@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.5.0",
+    "@jitsi/rnnoise-wasm": "^0.2.1",
     "antd": "^5.22.0",
     "idb-keyval": "^6.2.1",
     "react": "^18.3.1",

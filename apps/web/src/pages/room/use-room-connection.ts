@@ -8,6 +8,7 @@ import type { PeerRtcStats } from "@/shared/store/types";
 import { MAX_PEERS } from "@/shared/lib/discovery";
 import { applyNoiseGate } from "@/features/mic-toggle/apply-noise-gate";
 import { applyEqualizer } from "@/features/mic-toggle/apply-equalizer";
+import { applyRNNoise } from "@/features/mic-toggle/apply-rnnoise";
 
 const STUN_PORT = 3478;
 
@@ -115,10 +116,12 @@ export function useRoomConnection() {
   const gainContextRef = useRef<AudioContext | null>(null);
   const equalizerContextRef = useRef<AudioContext | null>(null);
   const noiseGateStopRef = useRef<(() => void) | null>(null);
+  const rnnoiseStopRef = useRef<(() => void) | null>(null);
   const analysersRef = useRef<Map<string, { analyser: AnalyserNode; rafId: number; audioContext: AudioContext; audioEl?: HTMLAudioElement }>>(new Map());
   const rtcStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const micGain = useStore((s) => s.micSettings.micGain ?? 1);
+  const rnnoiseEnabled = useStore((s) => s.micSettings.rnnoiseEnabled ?? true);
   const noiseGateEnabled = useStore((s) => s.micSettings.noiseGateEnabled ?? true);
   const noiseGateThreshold = useStore((s) => s.micSettings.noiseGateThreshold ?? 25);
   const equalizerPreset = useStore((s) => s.micSettings.equalizerPreset ?? "keyboard");
@@ -274,6 +277,8 @@ export function useRoomConnection() {
       discoveryRef.current = null;
       meshRef.current = null;
       dataChannelsRef.current.clear();
+      rnnoiseStopRef.current?.();
+      rnnoiseStopRef.current = null;
       noiseGateStopRef.current?.();
       noiseGateStopRef.current = null;
       gainContextRef.current?.close();
@@ -316,6 +321,8 @@ export function useRoomConnection() {
   );
 
   const setLocalStream = useCallback((stream: MediaStream | null) => {
+    rnnoiseStopRef.current?.();
+    rnnoiseStopRef.current = null;
     noiseGateStopRef.current?.();
     noiseGateStopRef.current = null;
     gainContextRef.current?.close();
@@ -328,33 +335,49 @@ export function useRoomConnection() {
     localStreamRef.current = stream;
     if (stream) {
       const gain = useStore.getState().micSettings.micGain ?? 1;
+      const rnEnabled = useStore.getState().micSettings.rnnoiseEnabled ?? true;
       const ngEnabled = useStore.getState().micSettings.noiseGateEnabled ?? true;
       const ngThreshold = useStore.getState().micSettings.noiseGateThreshold ?? 25;
       const eqPreset = useStore.getState().micSettings.equalizerPreset ?? "keyboard";
 
-      let inputStream: MediaStream = stream;
-      const eq = applyEqualizer(stream, { preset: eqPreset });
-      equalizerContextRef.current = eq.context;
-      inputStream = eq.stream;
+      const applyPipeline = async () => {
+        let inputStream: MediaStream = stream;
+        if (rnEnabled) {
+          try {
+            const rn = await applyRNNoise(stream);
+            rnnoiseStopRef.current = rn.stop;
+            inputStream = rn.stream;
+          } catch (e) {
+            console.warn("[Mic/Stream] RNNnoise не загрузился, используем оригинал", e);
+          }
+        }
 
-      if (ngEnabled) {
-        const ng = applyNoiseGate(inputStream, { threshold: ngThreshold });
-        noiseGateStopRef.current = ng.stop;
-        inputStream = ng.stream;
-      }
+        const eq = applyEqualizer(inputStream, { preset: eqPreset });
+        equalizerContextRef.current = eq.context;
+        inputStream = eq.stream;
 
-      const result = applyMicGain(inputStream, gain);
-      gainContextRef.current = result.context;
-      const track = result.stream.getAudioTracks()[0];
-      console.log("[Mic/Stream] Исходящий аудиопоток установлен", {
-        streamId: result.stream.id,
-        trackId: track?.id,
-        trackLabel: track?.label,
-        micGain: gain,
-        noiseGate: ngEnabled,
-        equalizer: eqPreset,
-      });
-      meshRef.current?.setLocalStream(result.stream);
+        if (ngEnabled) {
+          const ng = applyNoiseGate(inputStream, { threshold: ngThreshold });
+          noiseGateStopRef.current = ng.stop;
+          inputStream = ng.stream;
+        }
+
+        const result = applyMicGain(inputStream, gain);
+        gainContextRef.current = result.context;
+        if (localStreamRef.current !== stream) return;
+        const track = result.stream.getAudioTracks()[0];
+        console.log("[Mic/Stream] Исходящий аудиопоток установлен", {
+          streamId: result.stream.id,
+          trackId: track?.id,
+          trackLabel: track?.label,
+          micGain: gain,
+          rnnoise: rnEnabled,
+          noiseGate: ngEnabled,
+          equalizer: eqPreset,
+        });
+        meshRef.current?.setLocalStream(result.stream);
+      };
+      applyPipeline();
     } else {
       console.log("[Mic/Stream] Исходящий аудиопоток отключён");
       meshRef.current?.setLocalStream(null);
@@ -365,33 +388,8 @@ export function useRoomConnection() {
     const raw = localStreamRef.current;
     const mesh = meshRef.current;
     if (!raw || !mesh) return;
-    const gain = useStore.getState().micSettings.micGain ?? 1;
-    const ngEnabled = useStore.getState().micSettings.noiseGateEnabled ?? true;
-    const ngThreshold = useStore.getState().micSettings.noiseGateThreshold ?? 25;
-    const eqPreset = useStore.getState().micSettings.equalizerPreset ?? "keyboard";
-
-    noiseGateStopRef.current?.();
-    noiseGateStopRef.current = null;
-    gainContextRef.current?.close();
-    gainContextRef.current = null;
-    equalizerContextRef.current?.close();
-    equalizerContextRef.current = null;
-
-    let inputStream: MediaStream = raw;
-    const eq = applyEqualizer(raw, { preset: eqPreset });
-    equalizerContextRef.current = eq.context;
-    inputStream = eq.stream;
-
-    if (ngEnabled) {
-      const ng = applyNoiseGate(inputStream, { threshold: ngThreshold });
-      noiseGateStopRef.current = ng.stop;
-      inputStream = ng.stream;
-    }
-
-    const result = applyMicGain(inputStream, gain);
-    gainContextRef.current = result.context;
-    mesh.setLocalStream(result.stream);
-  }, [micGain, noiseGateEnabled, noiseGateThreshold, equalizerPreset]);
+    setLocalStream(raw);
+  }, [micGain, rnnoiseEnabled, noiseGateEnabled, noiseGateThreshold, equalizerPreset, setLocalStream]);
 
   return { sendMessage, setLocalStream };
 }

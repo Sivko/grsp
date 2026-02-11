@@ -16,6 +16,7 @@ const DEFAULT_MIC_SETTINGS: MicSettings = {
   latency: null,
   testGain: 0.5,
   micGain: 1,
+  rnnoiseEnabled: true,
   noiseGateEnabled: true,
   noiseGateThreshold: 25,
   equalizerPreset: "keyboard",
