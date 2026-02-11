@@ -51,4 +51,8 @@ export interface MicSettings {
   noiseGateEnabled: boolean;
   /** Порог шлюза тишины (0–255). Ниже — тишина. */
   noiseGateThreshold: number;
+  /** Пресет эквалайзера: подавление клавиатуры, чёткость голоса и т.д. */
+  equalizerPreset: EqualizerPreset;
 }
+
+export type EqualizerPreset = "none" | "keyboard" | "voice" | "reduce-hiss";

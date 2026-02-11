@@ -4,6 +4,8 @@ import { SettingOutlined, SoundOutlined, StopOutlined } from "@ant-design/icons"
 import { useStore } from "@/shared/store";
 import type { MicSettings } from "@/shared/store/types";
 import { buildAudioConstraints } from "./build-constraints";
+import { applyEqualizer } from "./apply-equalizer";
+import type { EqualizerPreset } from "@/shared/store/types";
 
 const SAMPLE_RATES = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 96000];
 const SAMPLE_SIZES = [8, 16, 24, 32];
@@ -33,6 +35,7 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
+  const equalizerContextRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number>(0);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const testStreamRef = useRef<MediaStream | null>(null);
@@ -69,14 +72,19 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
       testStreamRef.current = stream;
       setTestStream(stream);
 
+      const eqPreset = (micSettings.equalizerPreset ?? "keyboard") as EqualizerPreset;
+      const eq = applyEqualizer(stream, { preset: eqPreset });
+      equalizerContextRef.current = eq.context;
+      const streamToPlay = eq.stream;
+
       const audioContext = new AudioContext();
-      const source = audioContext.createMediaStreamSource(stream);
+      const source = audioContext.createMediaStreamSource(streamToPlay);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.5;
       source.connect(analyser);
 
-      // Локальное воспроизведение для теста голоса
+      // Локальное воспроизведение для теста голоса (с эквалайзером)
       const gainNode = audioContext.createGain();
       const gain = micSettings.testGain ?? 0.5;
       gainNode.gain.value = gain;
@@ -108,6 +116,8 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     audioContextRef.current?.close();
     audioContextRef.current = null;
+    equalizerContextRef.current?.close();
+    equalizerContextRef.current = null;
     gainNodeRef.current = null;
     analyserRef.current = null;
     dataArrayRef.current = null;
@@ -321,6 +331,27 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
               />
             </div>
           )}
+        </div>
+
+        <Divider style={{ margin: "8px 0" }} />
+
+        {/* Эквалайзер */}
+        <div>
+          <Typography.Text strong>Эквалайзер</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
+            Подавление клавиатуры и других нежелательных звуков в микрофоне.
+          </Typography.Text>
+          <Select
+            style={{ width: "100%", maxWidth: 320 }}
+            value={(micSettings.equalizerPreset ?? "keyboard") as EqualizerPreset}
+            onChange={(v) => updateSetting("equalizerPreset", v)}
+            options={[
+              { value: "none", label: "Без эквалайзера" },
+              { value: "keyboard", label: "Подавление клавиатуры" },
+              { value: "voice", label: "Чёткость голоса" },
+              { value: "reduce-hiss", label: "Подавление шипения и фона" },
+            ]}
+          />
         </div>
 
         <Divider style={{ margin: "8px 0" }} />

@@ -18,6 +18,7 @@ const DEFAULT_MIC_SETTINGS: MicSettings = {
   micGain: 1,
   noiseGateEnabled: true,
   noiseGateThreshold: 25,
+  equalizerPreset: "keyboard",
 };
 
 interface PersistedSlice {
