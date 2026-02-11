@@ -8,17 +8,18 @@ import { ChatPanel } from "@/features/chat";
 import { useStore } from "@/shared/store";
 import { MAX_PEERS } from "@/shared/lib/discovery";
 
-const { Content } = Layout;
+const { Content, Header } = Layout;
 
 export function RoomPage() {
   const navigate = useNavigate();
   const groupId = useStore((s) => s.groupId);
   const connectionStatus = useStore((s) => s.connectionStatus);
   const peers = useStore((s) => s.peers);
+  const pingMs = useStore((s) => s.pingMs);
   const leaveGroup = useStore((s) => s.leaveGroup);
   const resetSession = useStore((s) => s.resetSession);
 
-  const { sendMessage, setLocalStream } = useRoomConnection();
+  const { sendMessage, setLocalStream, setPeerVolume } = useRoomConnection();
 
   useEffect(() => {
     if (!groupId) navigate("/", { replace: true });
@@ -41,6 +42,21 @@ export function RoomPage() {
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
+      <Header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          padding: "0 24px",
+          background: "transparent",
+        }}
+      >
+        {pingMs != null ? (
+          <span style={{ fontSize: 14, color: "var(--ant-color-text-secondary)" }}>
+            Ping: {pingMs} ms
+          </span>
+        ) : null}
+      </Header>
       <Content style={{ display: "flex", padding: 16, gap: 16 }}>
         <Card
           title="Participants"
@@ -54,7 +70,7 @@ export function RoomPage() {
           }
           style={{ width: 280, flexShrink: 0 }}
         >
-          <ParticipantsList />
+          <ParticipantsList setPeerVolume={setPeerVolume} />
           <div style={{ marginTop: 16 }}>
             <MicToggle onStreamChange={setLocalStream} />
           </div>

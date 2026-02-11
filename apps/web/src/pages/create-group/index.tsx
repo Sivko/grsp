@@ -1,11 +1,35 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, Input, Layout, message as antMessage } from "antd";
 import { createGroupLink } from "@/shared/lib/group-link";
 import { useStore, keyPairToBase64 } from "@/shared/store";
 import { generateKeyPair } from "@/shared/lib/crypto";
 
+const DISPLAY_NAME_KEY = "grsp-display-name";
+
+function getDisplayNameFromStorage(): string {
+  try {
+    return localStorage.getItem(DISPLAY_NAME_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveDisplayNameToStorage(name: string): void {
+  try {
+    localStorage.setItem(DISPLAY_NAME_KEY, name);
+  } catch {
+    // ignore
+  }
+}
+
 const { Content } = Layout;
+
+const isDev = import.meta.env.DEV;
+
+function getDefaultBootstrapUrl(): string {
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
 
 export function CreateGroupPage() {
   const navigate = useNavigate();
@@ -13,10 +37,21 @@ export function CreateGroupPage() {
   const setBootstrapUrl = useStore((s) => s.setBootstrapUrl);
   const setGroup = useStore((s) => s.setGroup);
   const setMyKeyPair = useStore((s) => s.setMyKeyPair);
+  const setMyDisplayName = useStore((s) => s.setMyDisplayName);
 
-  const [bootstrapInput, setBootstrapInput] = useState(bootstrapUrl);
+  const savedName = getDisplayNameFromStorage();
+  const [bootstrapInput, setBootstrapInput] = useState(bootstrapUrl || (isDev ? "" : getDefaultBootstrapUrl()));
   const [groupUrl, setGroupUrl] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+  const needsNameInput = !savedName;
+
+  useEffect(() => {
+    if (savedName) {
+      setMyDisplayName(savedName);
+    }
+  }, [savedName, setMyDisplayName]);
 
   const handleSaveBootstrap = () => {
     setBootstrapUrl(bootstrapInput.trim());
@@ -24,17 +59,25 @@ export function CreateGroupPage() {
   };
 
   const handleCreateGroup = async () => {
-    if (!bootstrapInput.trim()) {
-      antMessage.warning("Enter bootstrap server URL first");
+    const bootstrap = isDev ? bootstrapInput.trim() : getDefaultBootstrapUrl();
+    if (!bootstrap) {
+      antMessage.warning(isDev ? "Enter bootstrap server URL first" : "Bootstrap URL is not available");
+      return;
+    }
+    const name = savedName || nameInput.trim();
+    if (!name) {
+      antMessage.warning("Enter your name");
       return;
     }
     setCreating(true);
     try {
-      setBootstrapUrl(bootstrapInput.trim());
+      setBootstrapUrl(bootstrap);
+      setMyDisplayName(name);
+      saveDisplayNameToStorage(name);
       const keyPair = await generateKeyPair();
       setMyKeyPair(keyPairToBase64(keyPair.publicKey, keyPair.privateKey));
       const origin = window.location.origin;
-      const { url, groupId, keyBase64 } = createGroupLink(origin, bootstrapInput.trim());
+      const { url, groupId, keyBase64 } = createGroupLink(origin, bootstrap);
       setGroup(groupId, keyBase64);
       setGroupUrl(url);
       antMessage.success("Group created");
@@ -55,17 +98,29 @@ export function CreateGroupPage() {
     <Layout style={{ minHeight: "100vh", padding: 24 }}>
       <Content style={{ maxWidth: 560, margin: "0 auto", width: "100%" }}>
         <Card title="Create group">
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", marginBottom: 8 }}>
-              Bootstrap server URL
-            </label>
-            <Input
-              value={bootstrapInput}
-              onChange={(e) => setBootstrapInput(e.target.value)}
-              placeholder="https://your-bootstrap.example.com"
-              onBlur={handleSaveBootstrap}
-            />
-          </div>
+          {isDev ? (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>
+                Bootstrap server URL
+              </label>
+              <Input
+                value={bootstrapInput}
+                onChange={(e) => setBootstrapInput(e.target.value)}
+                placeholder="https://your-bootstrap.example.com"
+                onBlur={handleSaveBootstrap}
+              />
+            </div>
+          ) : null}
+          {needsNameInput ? (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", marginBottom: 8 }}>Your name</label>
+              <Input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                placeholder="Display name"
+              />
+            </div>
+          ) : null}
           {!groupUrl ? (
             <Button
               type="primary"

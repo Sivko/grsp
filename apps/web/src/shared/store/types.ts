@@ -23,3 +23,8 @@ export interface ChatMessage {
   timestamp: number;
   signatureValid: boolean;
 }
+
+export interface PeerQuality {
+  rtt?: number;
+  lossPercent?: number;
+}

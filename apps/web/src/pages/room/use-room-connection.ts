@@ -4,6 +4,7 @@ import { Discovery } from "@/shared/lib/discovery";
 import { Mesh } from "@/shared/lib/mesh";
 import { packMessage, unpackMessage } from "@/shared/lib/crypto";
 import { useStore, getGroupKeyBytes, getMyKeyPairBytes } from "@/shared/store";
+import type { PeerQuality } from "@/shared/store/types";
 import { MAX_PEERS } from "@/shared/lib/discovery";
 
 const STUN_PORT = 3478;
@@ -28,6 +29,7 @@ function iceServersFromBootstrapUrl(bootstrapUrl: string): RTCIceServer[] {
 }
 
 const MIC_STATS_LOG_INTERVAL_MS = 3000;
+const PING_STATS_INTERVAL_MS = 2000;
 
 async function logMicTransportStats(mesh: Mesh | null): Promise<void> {
   if (!mesh) return;
@@ -84,6 +86,69 @@ async function logMicTransportStats(mesh: Mesh | null): Promise<void> {
   });
 }
 
+interface PeerStats {
+  rttMs: number | null;
+  packetsLost: number;
+  packetsReceived: number;
+}
+
+async function collectPeerStats(mesh: Mesh | null): Promise<{ pingMs: number | null; peerQuality: Record<string, PeerQuality> }> {
+  const result: { pingMs: number | null; peerQuality: Record<string, PeerQuality> } = {
+    pingMs: null,
+    peerQuality: {},
+  };
+  if (!mesh) return result;
+
+  const peerIds = mesh.getPeerIds();
+  const statsPerPeer = new Map<string, PeerStats>();
+
+  for (const peerId of peerIds) {
+    const pc = mesh.getConnection(peerId);
+    if (!pc) continue;
+    try {
+      const report = await pc.getStats();
+      let rttMs: number | null = null;
+      let packetsLost = 0;
+      let packetsReceived = 0;
+
+      report.forEach((s) => {
+        const r = s as { roundTripTime?: number; packetsLost?: number; packetsReceived?: number; currentRoundTripTime?: number };
+        if (s.type === "remote-inbound-rtp") {
+          if (r.roundTripTime != null && r.roundTripTime > 0) {
+            rttMs = r.roundTripTime * 1000;
+          }
+          packetsLost += r.packetsLost ?? 0;
+          packetsReceived += r.packetsReceived ?? 0;
+        }
+        if (s.type === "candidate-pair" && rttMs == null) {
+          if (r.currentRoundTripTime != null && r.currentRoundTripTime > 0) {
+            rttMs = r.currentRoundTripTime * 1000;
+          }
+        }
+      });
+
+      statsPerPeer.set(peerId, { rttMs, packetsLost, packetsReceived });
+
+      const lossPercent =
+        packetsReceived + packetsLost > 0
+          ? (packetsLost / (packetsReceived + packetsLost)) * 100
+          : undefined;
+      result.peerQuality[peerId] = { rtt: rttMs ?? undefined, lossPercent };
+    } catch {
+      // ignore
+    }
+  }
+
+  const rttValues = Array.from(statsPerPeer.values())
+    .map((s) => s.rttMs)
+    .filter((v): v is number => v != null && v > 0);
+  if (rttValues.length > 0) {
+    result.pingMs = Math.round(Math.min(...rttValues));
+  }
+
+  return result;
+}
+
 export function useRoomConnection() {
   const groupId = useStore((s) => s.groupId);
   const bootstrapUrl = useStore((s) => s.bootstrapUrl);
@@ -94,13 +159,28 @@ export function useRoomConnection() {
   const setPeerMicMuted = useStore((s) => s.setPeerMicMuted);
   const addMessage = useStore((s) => s.addMessage);
   const setConnectionStatus = useStore((s) => s.setConnectionStatus);
+  const setPingMs = useStore((s) => s.setPingMs);
+  const setPeerQuality = useStore((s) => s.setPeerQuality);
+  const setPeerVolume = useStore((s) => s.setPeerVolume);
 
   const discoveryRef = useRef<Discovery | null>(null);
   const meshRef = useRef<Mesh | null>(null);
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
-  const analysersRef = useRef<Map<string, { analyser: AnalyserNode; rafId: number; audioContext: AudioContext; audioEl?: HTMLAudioElement }>>(new Map());
+  const analysersRef = useRef<
+    Map<
+      string,
+      {
+        analyser: AnalyserNode;
+        gainNode: GainNode;
+        rafId: number;
+        audioContext: AudioContext;
+        audioEl?: HTMLAudioElement;
+      }
+    >
+  >(new Map());
   const micStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pingStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const getKeyPair = useCallback(() => getMyKeyPairBytes(), []);
   const getGroupKey = useCallback(() => getGroupKeyBytes(), []);
@@ -121,6 +201,11 @@ export function useRoomConnection() {
       const discovery = new Discovery({
         onPeersUpdated: (descriptors) => {
           const limited = descriptors.slice(0, MAX_PEERS);
+          console.log("[Discovery] onPeersUpdated", {
+            count: limited.length,
+            peerIds: limited.map((d) => d.peerId.slice(0, 8)),
+            myPeerId: myPeerId.slice(0, 8),
+          });
           setPeers(
             limited.map((d) => ({
               peerId: d.peerId,
@@ -131,8 +216,11 @@ export function useRoomConnection() {
           );
           const mesh = meshRef.current;
           if (mesh) {
-            limited.forEach((d) => {
-              if (d.peerId !== myPeerId) mesh.addPeer(d.peerId);
+            limited.forEach((d, idx) => {
+              if (d.peerId !== myPeerId) {
+                console.log("[Discovery] addPeer to mesh", { index: idx, peerId: d.peerId.slice(0, 8) });
+                mesh.addPeer(d.peerId);
+              }
             });
           }
         },
@@ -169,6 +257,7 @@ export function useRoomConnection() {
             };
           },
           onPeerLeft: (peerId) => {
+            console.log("[Mesh] onPeerLeft", { peerId: peerId.slice(0, 8) });
             dataChannelsRef.current.delete(peerId);
             const a = analysersRef.current.get(peerId);
             if (a) {
@@ -184,29 +273,53 @@ export function useRoomConnection() {
           },
           onRemoteStream: (peerId, stream) => {
             const track = stream.getAudioTracks()[0];
+            const allTracks = stream.getTracks();
+            const existingCount = analysersRef.current.size;
             console.log("[Mic/Stream] Входящий аудиопоток получен", {
               peerId: peerId.slice(0, 8),
+              peerIndex: existingCount,
               streamId: stream.id,
               trackId: track?.id,
               trackLabel: track?.label,
+              trackEnabled: track?.enabled,
+              trackReadyState: track?.readyState,
+              tracksCount: allTracks.length,
+              streamActive: stream.active,
             });
             const audioEl = document.createElement("audio");
             audioEl.autoplay = true;
             audioEl.srcObject = stream;
-            audioEl.play().catch((e) => console.warn("[Mic/Stream] audio.play()", e));
+            const playPromise = audioEl.play();
+            playPromise
+              .then(() => {
+                console.log("[Mic/Stream] audio.play() OK", { peerId: peerId.slice(0, 8) });
+              })
+              .catch((e) => {
+                console.warn("[Mic/Stream] audio.play() FAILED", { peerId: peerId.slice(0, 8), err: e });
+              });
 
             const audioContext = new AudioContext();
             const source = audioContext.createMediaStreamSource(stream);
             const analyser = audioContext.createAnalyser();
             analyser.fftSize = 256;
             analyser.smoothingTimeConstant = 0.8;
+            const gainNode = audioContext.createGain();
+            const savedVolume = useStore.getState().peerVolumes[peerId];
+            gainNode.gain.value = savedVolume ?? 1;
             source.connect(analyser);
+            analyser.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            console.log("[Mic/Stream] AudioContext создан", {
+              peerId: peerId.slice(0, 8),
+              contextState: audioContext.state,
+              gainValue: gainNode.gain.value,
+            });
             if (audioContext.state === "suspended") {
               audioContext.resume().then(() => {
-                source.connect(audioContext.destination);
-              }).catch(() => {});
-            } else {
-              source.connect(audioContext.destination);
+                console.log("[Mic/Stream] AudioContext resumed", { peerId: peerId.slice(0, 8), state: audioContext.state });
+              }).catch((e) => {
+                console.warn("[Mic/Stream] AudioContext resume failed", { peerId: peerId.slice(0, 8), err: e });
+              });
             }
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             const SPEAKING_THRESHOLD = 30;
@@ -220,7 +333,7 @@ export function useRoomConnection() {
               if (prev) prev.rafId = rafId;
             };
             const rafId = requestAnimationFrame(tick);
-            analysersRef.current.set(peerId, { analyser, rafId, audioContext, audioEl });
+            analysersRef.current.set(peerId, { analyser, gainNode, rafId, audioContext, audioEl });
           },
           onSignalingSend: (toPeerId, payload) => {
             discoveryRef.current?.sendSignaling(toPeerId, payload);
@@ -236,6 +349,12 @@ export function useRoomConnection() {
         logMicTransportStats(meshRef.current);
       }, MIC_STATS_LOG_INTERVAL_MS);
 
+      pingStatsIntervalRef.current = setInterval(async () => {
+        const { pingMs, peerQuality } = await collectPeerStats(meshRef.current);
+        setPingMs(pingMs);
+        setPeerQuality(peerQuality);
+      }, PING_STATS_INTERVAL_MS);
+
       discovery.connect(bootstrapUrl.trim(), dkey, {
         peerId: myPeerId,
         displayName: myDisplayName || "Guest",
@@ -247,6 +366,12 @@ export function useRoomConnection() {
         clearInterval(micStatsIntervalRef.current);
         micStatsIntervalRef.current = null;
       }
+      if (pingStatsIntervalRef.current) {
+        clearInterval(pingStatsIntervalRef.current);
+        pingStatsIntervalRef.current = null;
+      }
+      setPingMs(null);
+      setPeerQuality({});
       discoveryRef.current?.disconnect();
       meshRef.current?.disconnect();
       discoveryRef.current = null;
@@ -259,7 +384,7 @@ export function useRoomConnection() {
       setConnectionStatus("disconnected");
       setPeers([]);
     };
-  }, [groupId, bootstrapUrl, myDisplayName, setMyPeerId, setPeers, setPeerSpeaking, addMessage, setConnectionStatus, setPeerMicMuted, getKeyPair, getGroupKey]);
+  }, [groupId, bootstrapUrl, myDisplayName, setMyPeerId, setPeers, setPeerSpeaking, addMessage, setConnectionStatus, setPeerMicMuted, setPingMs, setPeerQuality, getKeyPair, getGroupKey]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -304,5 +429,16 @@ export function useRoomConnection() {
     meshRef.current?.setLocalStream(stream);
   }, []);
 
-  return { sendMessage, setLocalStream };
+  const updatePeerVolume = useCallback(
+    (peerId: string, volume: number) => {
+      setPeerVolume(peerId, volume);
+      const entry = analysersRef.current.get(peerId);
+      if (entry?.gainNode) {
+        entry.gainNode.gain.setValueAtTime(volume, entry.audioContext.currentTime);
+      }
+    },
+    [setPeerVolume]
+  );
+
+  return { sendMessage, setLocalStream, setPeerVolume: updatePeerVolume };
 }

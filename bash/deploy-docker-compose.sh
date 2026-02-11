@@ -25,13 +25,13 @@ fi
 echo "✓ docker-compose.yml отправлен в $REMOTE_HOST:$REMOTE_PATH/"
 echo ""
 
-# echo "=== Сборка и отправка meet-backend ==="
-# "$SCRIPT_DIR/build-and-push-backend.sh" || exit 1
-# echo ""
+echo "=== Сборка и отправка meet-backend ==="
+"$SCRIPT_DIR/build-and-push-backend.sh" || exit 1
+echo ""
 
-# echo "=== Сборка и отправка meet-frontend ==="
-# "$SCRIPT_DIR/build-and-push-frontend.sh" || exit 1
-# echo ""
+echo "=== Сборка и отправка meet-frontend ==="
+"$SCRIPT_DIR/build-and-push-frontend.sh" || exit 1
+echo ""
 
 echo "=== Все сервисы meet развёрнуты ==="
 echo "Готово! docker-compose и образы загружены, контейнеры перезапущены."

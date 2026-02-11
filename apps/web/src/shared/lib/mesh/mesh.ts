@@ -24,6 +24,13 @@ export class Mesh {
 
   async setLocalStream(stream: MediaStream | null): Promise<void> {
     this.localStream = stream;
+    const trackCount = stream?.getAudioTracks().length ?? 0;
+    console.log("[Mesh] setLocalStream", {
+      hasStream: !!stream,
+      trackCount,
+      connectionsCount: this.connections.size,
+      peerIds: Array.from(this.connections.keys()).map((id) => id.slice(0, 8)),
+    });
     const peersToRenegotiate: string[] = [];
     this.connections.forEach((pc, peerId) => {
       const senders = pc.getSenders();
@@ -44,10 +51,15 @@ export class Mesh {
       if (!pc || !this.callbacks.onSignalingSend) continue;
       try {
         const offer = await pc.createOffer();
+        const hasAudioInOffer = offer.sdp?.includes("m=audio") ?? false;
+        console.log("[Mesh] setLocalStream renegotiate", {
+          peerId: peerId.slice(0, 8),
+          hasAudioInSdp: hasAudioInOffer,
+        });
         await pc.setLocalDescription(offer);
         this.callbacks.onSignalingSend(peerId, { type: "offer", sdp: offer });
-      } catch (_) {
-        // ignore renegotiation errors
+      } catch (err) {
+        console.error("[Mesh] setLocalStream renegotiate failed", { peerId: peerId.slice(0, 8), err });
       }
     }
   }
@@ -56,12 +68,36 @@ export class Mesh {
     const weOffer = this.ourPeerId < peerId;
     if (this.connections.has(peerId)) return;
 
+    const hasLocalStream = !!this.localStream;
+    const trackCount = this.localStream?.getAudioTracks().length ?? 0;
+    console.log("[Mesh] addPeer", {
+      peerId: peerId.slice(0, 8),
+      weOffer,
+      hasLocalStream,
+      trackCount,
+      ourPeerId: this.ourPeerId.slice(0, 8),
+      connectionsCount: this.connections.size,
+    });
+
     const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     this.connections.set(peerId, pc);
     this.pendingCandidates.set(peerId, []);
 
     pc.ontrack = (e: RTCTrackEvent) => {
-      if (e.streams[0]) this.callbacks.onRemoteStream?.(peerId, e.streams[0]);
+      const stream = e.streams[0];
+      const track = e.track;
+      console.log("[Mesh] ontrack", {
+        peerId: peerId.slice(0, 8),
+        transceiverMid: e.transceiver?.mid,
+        trackKind: track?.kind,
+        trackId: track?.id,
+        trackEnabled: track?.enabled,
+        trackReadyState: track?.readyState,
+        hasStream: !!stream,
+        streamId: stream?.id,
+        streamTracksCount: stream?.getTracks().length ?? 0,
+      });
+      if (stream) this.callbacks.onRemoteStream?.(peerId, stream);
     };
 
     pc.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
@@ -71,9 +107,20 @@ export class Mesh {
     };
 
     pc.onconnectionstatechange = () => {
+      console.log("[Mesh] connectionstatechange", {
+        peerId: peerId.slice(0, 8),
+        state: pc.connectionState,
+      });
       if (pc.connectionState === "failed" || pc.connectionState === "disconnected" || pc.connectionState === "closed") {
         this.removePeer(peerId);
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("[Mesh] iceconnectionstatechange", {
+        peerId: peerId.slice(0, 8),
+        state: pc.iceConnectionState,
+      });
     };
 
     if (this.localStream) {
@@ -85,11 +132,18 @@ export class Mesh {
       this.setupDataChannel(peerId, dc);
       try {
         const offer = await pc.createOffer();
+        const hasAudioInOffer = offer.sdp?.includes("m=audio") ?? false;
+        console.log("[Mesh] createOffer (weOffer)", {
+          peerId: peerId.slice(0, 8),
+          hasAudioInSdp: hasAudioInOffer,
+          sendersCount: pc.getSenders().length,
+        });
         await pc.setLocalDescription(offer);
         if (this.callbacks.onSignalingSend) {
           this.callbacks.onSignalingSend(peerId, { type: "offer", sdp: offer });
         }
       } catch (err) {
+        console.error("[Mesh] createOffer failed", { peerId: peerId.slice(0, 8), err });
         this.removePeer(peerId);
       }
     } else {
@@ -117,13 +171,29 @@ export class Mesh {
     let pc = this.connections.get(fromPeerId);
     if (payload.type === "offer") {
       const isNewConnection = !pc;
+      const hasAudioInOffer = payload.sdp?.sdp?.includes("m=audio") ?? false;
+      console.log("[Mesh] handleSignaling offer", {
+        fromPeerId: fromPeerId.slice(0, 8),
+        isNewConnection,
+        hasLocalStream: !!this.localStream,
+        hasAudioInSdp: hasAudioInOffer,
+      });
       if (!pc) {
         pc = new RTCPeerConnection({ iceServers: this.iceServers });
       this.connections.set(fromPeerId, pc);
       this.pendingCandidates.set(fromPeerId, []);
 
       pc.ontrack = (e: RTCTrackEvent) => {
-        if (e.streams[0]) this.callbacks.onRemoteStream?.(fromPeerId, e.streams[0]);
+        const stream = e.streams[0];
+        const track = e.track;
+        console.log("[Mesh] ontrack (from offer)", {
+          peerId: fromPeerId.slice(0, 8),
+          trackKind: track?.kind,
+          trackId: track?.id,
+          trackReadyState: track?.readyState,
+          hasStream: !!stream,
+        });
+        if (stream) this.callbacks.onRemoteStream?.(fromPeerId, stream);
       };
       pc.onicecandidate = (e: RTCPeerConnectionIceEvent) => {
         if (e.candidate && this.callbacks.onSignalingSend) {
@@ -131,9 +201,19 @@ export class Mesh {
         }
       };
       pc.onconnectionstatechange = () => {
+        console.log("[Mesh] connectionstatechange (from offer)", {
+          peerId: fromPeerId.slice(0, 8),
+          state: pc!.connectionState,
+        });
         if (pc!.connectionState === "failed" || pc!.connectionState === "disconnected" || pc!.connectionState === "closed") {
           this.removePeer(fromPeerId);
         }
+      };
+      pc.oniceconnectionstatechange = () => {
+        console.log("[Mesh] iceconnectionstatechange (from offer)", {
+          peerId: fromPeerId.slice(0, 8),
+          state: pc!.iceConnectionState,
+        });
       };
       pc.ondatachannel = (e: RTCDataChannelEvent) => {
         if (e.channel.label === DATA_CHANNEL_LABEL) {
@@ -143,6 +223,13 @@ export class Mesh {
       if (isNewConnection && this.localStream) {
         this.localStream.getTracks().forEach((track) => pc!.addTrack(track, this.localStream!));
       }
+      }
+
+      if (this.localStream && pc!.getSenders().length === 0) {
+        this.localStream.getTracks().forEach((track) => pc!.addTrack(track, this.localStream!));
+        console.log("[Mesh] handleSignaling: добавлен localStream к существующему pc", {
+          fromPeerId: fromPeerId.slice(0, 8),
+        });
       }
 
       await pc!.setRemoteDescription(new RTCSessionDescription(payload.sdp));

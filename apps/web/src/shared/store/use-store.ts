@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { idbStorage } from "./idb-storage";
-import type { KeyPairBase64, PeerState, ChatMessage } from "./types";
+import type { KeyPairBase64, PeerState, ChatMessage, PeerQuality } from "./types";
 
 const PERSIST_NAME = "meet-p2p-persist";
 
@@ -23,6 +23,9 @@ interface SessionSlice {
   peers: PeerState[];
   messages: ChatMessage[];
   connectionStatus: "disconnected" | "connecting" | "connected";
+  pingMs: number | null;
+  peerQuality: Record<string, PeerQuality>;
+  peerVolumes: Record<string, number>;
   setMyPeerId: (id: string) => void;
   setPeers: (peers: PeerState[]) => void;
   setPeerSpeaking: (peerId: string, speaking: boolean) => void;
@@ -30,6 +33,9 @@ interface SessionSlice {
   addMessage: (msg: ChatMessage) => void;
   setMessages: (messages: ChatMessage[]) => void;
   setConnectionStatus: (status: "disconnected" | "connecting" | "connected") => void;
+  setPingMs: (ping: number | null) => void;
+  setPeerQuality: (quality: Record<string, PeerQuality>) => void;
+  setPeerVolume: (peerId: string, volume: number) => void;
   resetSession: () => void;
 }
 
@@ -67,6 +73,9 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
       peers: [],
       messages: [],
       connectionStatus: "disconnected",
+      pingMs: null,
+      peerQuality: {},
+      peerVolumes: {},
       setMyPeerId: (id) => set({ myPeerId: id }),
       setPeers: (peers) => set({ peers }),
       setPeerSpeaking: (peerId, speaking) =>
@@ -80,12 +89,21 @@ export const useStore = create<PersistedSlice & SessionSlice>()(
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       setMessages: (messages) => set({ messages }),
       setConnectionStatus: (status) => set({ connectionStatus: status }),
+      setPingMs: (ping) => set({ pingMs: ping }),
+      setPeerQuality: (quality) => set({ peerQuality: quality }),
+      setPeerVolume: (peerId, volume) =>
+        set((s) => ({
+          peerVolumes: { ...s.peerVolumes, [peerId]: volume },
+        })),
       resetSession: () =>
         set({
           myPeerId: "",
           peers: [],
           messages: [],
           connectionStatus: "disconnected",
+          pingMs: null,
+          peerQuality: {},
+          peerVolumes: {},
         }),
     }),
     {
