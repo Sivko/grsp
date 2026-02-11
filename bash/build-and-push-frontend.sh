@@ -16,14 +16,26 @@ IMAGE_TAG="latest"
 FULL_IMAGE_NAME="${IMAGE_NAME}:${IMAGE_TAG}"
 ARCHIVE_NAME="meet-frontend-image.tar"
 
+WEB_DIR="./apps/web"
+
+echo "Сборка фронтенда на локальной машине..."
+cd "$WEB_DIR" || exit 1
+npm run build
+if [ $? -ne 0 ]; then
+  echo "✗ Ошибка при сборке фронтенда"
+  exit 1
+fi
+cd "$SCRIPT_DIR/../" || exit 1
+echo "✓ Фронтенд успешно собран"
+
 echo "Сборка Docker образа для платформы linux/amd64..."
 
 docker buildx build \
   --platform linux/amd64 \
   -t "$FULL_IMAGE_NAME" \
-  -f ./apps/web/Dockerfile \
+  -f "$WEB_DIR/Dockerfile" \
   --load \
-  ./apps/web
+  "$WEB_DIR"
 
 if [ $? -ne 0 ]; then
   echo "✗ Ошибка при сборке Docker образа"
