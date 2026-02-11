@@ -3,6 +3,52 @@ import type { MeshCallbacks } from "./types";
 
 const DATA_CHANNEL_LABEL = "chat";
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+const OPUS_MAX_BITRATE_BPS = 32000;
+
+function setAudioCodecPreferences(pc: RTCPeerConnection): void {
+  try {
+    const transceivers = pc.getTransceivers().filter(
+      (t) => t.sender?.track?.kind === "audio" || t.receiver?.track?.kind === "audio"
+    );
+    for (const t of transceivers) {
+      const caps = RTCRtpReceiver.getCapabilities?.("audio");
+      if (!caps?.codecs?.length) continue;
+      const opusFirst = [...caps.codecs].sort((a, b) => {
+        const aOpus = a.mimeType?.toLowerCase().includes("opus") ? 0 : 1;
+        const bOpus = b.mimeType?.toLowerCase().includes("opus") ? 0 : 1;
+        return aOpus - bOpus;
+      });
+      t.setCodecPreferences?.(opusFirst);
+    }
+  } catch (_) {
+    // ignore if unsupported
+  }
+}
+
+function setAudioSenderParameters(pc: RTCPeerConnection): void {
+  const sender = pc.getSenders().find((s) => s.track?.kind === "audio");
+  if (!sender) return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings?.length) params.encodings = [{}];
+    params.encodings[0]!.maxBitrate = OPUS_MAX_BITRATE_BPS;
+    sender.setParameters(params);
+  } catch (_) {
+    // ignore if unsupported
+  }
+}
+
+function patchSdpForOpusBitrate(sdp: string): string {
+  return sdp.replace(/a=fmtp:\d+ ([^\r\n]+)/g, (match, rest: string) => {
+    if (rest.includes("minptime") || rest.includes("useinbandfec")) {
+      if (rest.includes("maxaveragebitrate=")) {
+        return match.replace(/maxaveragebitrate=\d+/, `maxaveragebitrate=${OPUS_MAX_BITRATE_BPS}`);
+      }
+      return `${match};maxaveragebitrate=${OPUS_MAX_BITRATE_BPS}`;
+    }
+    return match;
+  });
+}
 
 export interface MeshOptions {
   iceServers?: RTCIceServer[];
@@ -43,7 +89,10 @@ export class Mesh {
       const pc = this.connections.get(peerId);
       if (!pc || !this.callbacks.onSignalingSend) continue;
       try {
-        const offer = await pc.createOffer();
+        setAudioCodecPreferences(pc);
+        setAudioSenderParameters(pc);
+        let offer = await pc.createOffer();
+        offer = { ...offer, sdp: patchSdpForOpusBitrate(offer.sdp ?? "") };
         await pc.setLocalDescription(offer);
         this.callbacks.onSignalingSend(peerId, { type: "offer", sdp: offer });
       } catch (_) {
@@ -84,7 +133,10 @@ export class Mesh {
       const dc = pc.createDataChannel(DATA_CHANNEL_LABEL);
       this.setupDataChannel(peerId, dc);
       try {
-        const offer = await pc.createOffer();
+        setAudioCodecPreferences(pc);
+        setAudioSenderParameters(pc);
+        let offer = await pc.createOffer();
+        offer = { ...offer, sdp: patchSdpForOpusBitrate(offer.sdp ?? "") };
         await pc.setLocalDescription(offer);
         if (this.callbacks.onSignalingSend) {
           this.callbacks.onSignalingSend(peerId, { type: "offer", sdp: offer });
@@ -146,7 +198,10 @@ export class Mesh {
       }
 
       await pc!.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-      const answer = await pc.createAnswer();
+      setAudioCodecPreferences(pc);
+      setAudioSenderParameters(pc);
+      let answer = await pc.createAnswer();
+      answer = { ...answer, sdp: patchSdpForOpusBitrate(answer.sdp ?? "") };
       await pc.setLocalDescription(answer);
       if (this.callbacks.onSignalingSend) {
         this.callbacks.onSignalingSend(fromPeerId, { type: "answer", sdp: answer });

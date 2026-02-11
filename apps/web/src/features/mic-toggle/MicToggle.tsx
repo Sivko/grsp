@@ -21,9 +21,9 @@ export function MicToggle({ onStreamChange, debug = true }: MicToggleProps) {
 
   const micSettings = useStore((s) => s.micSettings);
 
-  /** Настройки, влияющие на getUserMedia (без testGain — он только для локального теста) */
+  /** Настройки, влияющие на getUserMedia (без testGain и micGain — они применяются отдельно) */
   const constraintSettingsKey = useMemo(() => {
-    const { testGain, ...rest } = micSettings;
+    const { testGain, micGain, ...rest } = micSettings;
     return JSON.stringify(rest);
   }, [micSettings]);
 

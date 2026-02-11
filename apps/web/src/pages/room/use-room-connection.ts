@@ -84,6 +84,22 @@ async function logMicTransportStats(mesh: Mesh | null): Promise<void> {
   });
 }
 
+function applyMicGain(
+  rawStream: MediaStream,
+  gain: number
+): { stream: MediaStream; context: AudioContext } | { stream: MediaStream; context: null } {
+  const g = Math.max(0.1, Math.min(3, gain));
+  if (Math.abs(g - 1) < 0.01) return { stream: rawStream, context: null };
+  const ctx = new AudioContext();
+  const source = ctx.createMediaStreamSource(rawStream);
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = g;
+  const dest = ctx.createMediaStreamDestination();
+  source.connect(gainNode);
+  gainNode.connect(dest);
+  return { stream: dest.stream, context: ctx };
+}
+
 export function useRoomConnection() {
   const groupId = useStore((s) => s.groupId);
   const bootstrapUrl = useStore((s) => s.bootstrapUrl);
@@ -99,8 +115,11 @@ export function useRoomConnection() {
   const meshRef = useRef<Mesh | null>(null);
   const dataChannelsRef = useRef<Map<string, RTCDataChannel>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const gainContextRef = useRef<AudioContext | null>(null);
   const analysersRef = useRef<Map<string, { analyser: AnalyserNode; rafId: number; audioContext: AudioContext; audioEl?: HTMLAudioElement }>>(new Map());
   const micStatsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const micGain = useStore((s) => s.micSettings.micGain ?? 1);
 
   const getKeyPair = useCallback(() => getMyKeyPairBytes(), []);
   const getGroupKey = useCallback(() => getGroupKeyBytes(), []);
@@ -252,6 +271,8 @@ export function useRoomConnection() {
       discoveryRef.current = null;
       meshRef.current = null;
       dataChannelsRef.current.clear();
+      gainContextRef.current?.close();
+      gainContextRef.current = null;
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
       analysersRef.current.forEach((a) => cancelAnimationFrame(a.rafId));
@@ -287,22 +308,41 @@ export function useRoomConnection() {
   );
 
   const setLocalStream = useCallback((stream: MediaStream | null) => {
+    gainContextRef.current?.close();
+    gainContextRef.current = null;
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
     }
     localStreamRef.current = stream;
     if (stream) {
-      const track = stream.getAudioTracks()[0];
+      const gain = useStore.getState().micSettings.micGain ?? 1;
+      const result = applyMicGain(stream, gain);
+      gainContextRef.current = result.context;
+      const track = result.stream.getAudioTracks()[0];
       console.log("[Mic/Stream] Исходящий аудиопоток установлен", {
-        streamId: stream.id,
+        streamId: result.stream.id,
         trackId: track?.id,
         trackLabel: track?.label,
+        micGain: gain,
       });
+      meshRef.current?.setLocalStream(result.stream);
     } else {
       console.log("[Mic/Stream] Исходящий аудиопоток отключён");
+      meshRef.current?.setLocalStream(null);
     }
-    meshRef.current?.setLocalStream(stream);
   }, []);
+
+  useEffect(() => {
+    const raw = localStreamRef.current;
+    const mesh = meshRef.current;
+    if (!raw || !mesh) return;
+    const gain = useStore.getState().micSettings.micGain ?? 1;
+    gainContextRef.current?.close();
+    gainContextRef.current = null;
+    const result = applyMicGain(raw, gain);
+    gainContextRef.current = result.context;
+    mesh.setLocalStream(result.stream);
+  }, [micGain]);
 
   return { sendMessage, setLocalStream };
 }

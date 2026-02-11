@@ -36,4 +36,6 @@ export interface MicSettings {
   latency: number | null;
   /** Громкость локального воспроизведения при тесте (0–1) */
   testGain: number;
+  /** Громкость микрофона при передаче (0.1–3, 1 = без изменений) */
+  micGain: number;
 }

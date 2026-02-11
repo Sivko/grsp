@@ -15,6 +15,7 @@ const DEFAULT_MIC_SETTINGS: MicSettings = {
   channelCount: null,
   latency: null,
   testGain: 0.5,
+  micGain: 1,
 };
 
 interface PersistedSlice {

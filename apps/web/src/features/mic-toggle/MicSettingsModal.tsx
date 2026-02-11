@@ -273,6 +273,27 @@ export function MicSettingsModal({ open, onClose }: MicSettingsModalProps) {
 
         <Divider style={{ margin: "8px 0" }} />
 
+        {/* Громкость микрофона при передаче */}
+        <div>
+          <Typography.Text strong>Громкость микрофона</Typography.Text>
+          <Typography.Text type="secondary" style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
+            Усиление/ослабление микрофона при передаче собеседникам. 100% — без изменений.
+          </Typography.Text>
+          <Slider
+            min={10}
+            max={300}
+            value={Math.round((micSettings.micGain ?? 1) * 100)}
+            onChange={(v) => updateSetting("micGain", (v ?? 100) / 100)}
+            style={{ width: "100%", maxWidth: 280 }}
+            marks={{ 100: "100%" }}
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {Math.round((micSettings.micGain ?? 1) * 100)}%
+          </Typography.Text>
+        </div>
+
+        <Divider style={{ margin: "8px 0" }} />
+
         {/* Режим тестирования */}
         <div>
           <Typography.Text strong>Тестирование голоса</Typography.Text>
